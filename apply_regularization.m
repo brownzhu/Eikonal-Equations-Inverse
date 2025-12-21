@@ -1,27 +1,30 @@
-function c = apply_regularization(xi, reg_type, beta, backCond, c_min, N)
+function c = apply_regularization(xi, reg_type, beta, backCond, c_min, ~)
 % APPLY_REGULARIZATION Apply regularization to the dual variable xi
 %
 % Inputs:
-%   xi        - Dual variable (N x N matrix)
+%   xi        - Dual variable (Nz x Nx matrix, can be non-square)
 %   reg_type  - Regularization type: 'L1', 'L2', or 'TV'
 %   beta      - Regularization strength parameter
 %   backCond  - Background condition value (used for L1)
 %   c_min     - Minimum value constraint for positivity
-%   N         - Grid size
+%   ~         - (unused, kept for backward compatibility)
 %
 % Output:
-%   c         - Regularized solution (N x N matrix)
+%   c         - Regularized solution (same size as xi)
 %
 % Examples:
-%   c = apply_regularization(xi, 'TV', 10.0, 1, 0.5, 129);
-%   c = apply_regularization(xi, 'L1', 0.1, 1, 0.5, 129);
-%   c = apply_regularization(xi, 'L2', 10.0, 1, 0.5, 129);
+%   c = apply_regularization(xi, 'TV', 10.0, 1, 0.5);
+%   c = apply_regularization(xi, 'L1', 0.1, 1, 0.5);
+%   c = apply_regularization(xi, 'L2', 10.0, 1, 0.5);
+
+% Get actual size of xi (supports non-square grids)
+[Nz, Nx] = size(xi);
 
 switch reg_type
     case 'TV'
         % Total Variation regularization via PDHG
-        % Solves: min_c ||c - xi||^2 + (1/beta) * TV(c)
-        [c, ~] = TV_PDHG_host(zeros(N), zeros(N), xi, 1/beta, 200, 0);
+        % Solves: min_c 1/2||c - xi||^2 + beta * TV(c)
+        [c, ~] = TV_PDHG_host(zeros(Nz, Nx), zeros(Nz, Nx), xi, 1/beta, 200, 0);
         
     case 'L2'
         % L2 regularization (Tikhonov)
