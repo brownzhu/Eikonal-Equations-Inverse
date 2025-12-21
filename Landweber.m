@@ -7,9 +7,11 @@ format long
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
 regularization_type = 'TV';
+% regularization_type = 'L2';
 
 % Whether to save figures
 save_figures = true;
+% save_figures = false;
 
 % Experiment name (used for saving files)
 experiment_name = 'piecewise_1patch';
@@ -22,7 +24,7 @@ end
 
 %% ========== Algorithm Parameters ==========
 tol = 0.001;
-kmax = 150;
+kmax = 1500;
 N = 129;
 x = linspace(-1, 1, N);
 z = linspace(-1, 1, N);
@@ -35,14 +37,14 @@ mu_1 = 600;               % step size upper bound
 backCond = 1;             % background value
 
 % Fixed step size (if needed)
-use_fixed_alpha = true;
+use_fixed_alpha = false;
 fixed_alpha = 0.01;
 
 %% ========== Piecewise Solution Configuration ==========
 % Base layer
 c_exact = ones(N);
 c_min = 0.5;
-
+y
 % patch 1: central rectangle (positive perturbation)
 patch1_enabled = true;
 if patch1_enabled
@@ -89,7 +91,7 @@ niu = 1;
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
 c = c0;
 
-% initial xi = nabla \Theta^* (c_0)
+% initial xi = nabla \Theta^* (xi_0)
 xi = c0;
 
 %% ========== Main Iteration ==========
@@ -162,7 +164,7 @@ for k = 1:kmax
     
     % Print progress
     if mod(k, 10) == 0
-        fprintf('Iter %4d | Energy = %.6e | Residual = %.6e | alpha = %.3e\n', ...
+        fprintf('Iter %4d | Energy = %.6e | Residual Sq. = %.6e | alpha = %.3e\n', ...
                 k, energy(k+1), resn_set(k), alpha_set(k));
     end
 end

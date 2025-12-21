@@ -79,9 +79,9 @@ for reg_idx = 1:length(regularization_types)
     
     tic
     
-    % Initialize
-    c = c0;
+    % Initialize xi and apply regularization to get initial c
     xi = c0;
+    c = apply_regularization(xi, reg_type, beta, backCond, c_min, N);
     energy = 1e9;
     resn_set = [];
     alpha_set = [];
@@ -122,17 +122,7 @@ for reg_idx = 1:length(regularization_types)
         xi = xi + alpha * cstar;
         
         % Apply regularization
-        switch reg_type
-            case 'TV'
-                [c, ~] = TV_PDHG_host(zeros(N), zeros(N), xi, 1/beta, 200, 0);
-            case 'L2'
-                c = xi;
-            case 'L1'
-                tmp = xi - backCond;
-                c = sign(tmp) .* max(abs(tmp) - beta, 0) + backCond;
-        end
-        
-        c = max(c, c_min);
+        c = apply_regularization(xi, reg_type, beta, backCond, c_min, N);
         
         if mod(k, 50) == 0
             fprintf('%s | Iter %4d | Energy = %.6e\n', reg_type, k, energy(k+1));
