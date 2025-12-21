@@ -1,0 +1,23 @@
+# MATLAB temporary files
+*.asv
+*.m~
+*.autosave
+
+# MATLAB generated files
+*.mex*
+*.mlappinstall
+*.mlpkginstall
+
+# Simulink autosave
+*.slxc
+*.mdlp
+
+# Results directory (optional - remove if you want to track results)
+# results/
+
+# Mac system files
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
