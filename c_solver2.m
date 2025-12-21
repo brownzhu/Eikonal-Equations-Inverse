@@ -82,8 +82,8 @@ A=kron(eye(M-2),C)+kron(spdiags([e e],[-1 1],M-2,M-2),D);
 % Together, these two terms form the standard 2D Laplacian
 % plus identity operator in sparse matrix form.
 
-f=f'; u=zeros(M, N);
-u(2:M-1,2:N-1)=reshape(A\f(:),N-2,M-2)';
+f=f'; u=zeros(N, M);
+u(2:N-1,2:M-1)=reshape(A\f(:),M-2,N-2)';
 u(:, [1, end]) = c_boundary(:, [1, end]);
 u([1, end], :) = c_boundary([1, end], :);
 
