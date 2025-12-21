@@ -16,7 +16,7 @@ function cstar = cStarSolver(T, T_star, dx, I, J, c)
     % preconditioner and improves robustness of the gradient.
     % ------------------------------------------------------------
     cstar = -beta ./ c.^3;
-    niu = 1e-4;
+    niu = 1e4; % 1e-4;
     cstar = c_solver2(zeros(I, J), cstar, dx, dx, niu);
  
 end

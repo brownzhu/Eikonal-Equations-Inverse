@@ -8,10 +8,10 @@ format long
 % Regularization type: 'L1', 'L2', 'TV'
 regularization_type = 'TV';
 % regularization_type = 'L2';
-
+% regularization_type = 'L1';
 % Whether to save figures
-% save_figures = true;
-save_figures = false;
+save_figures = true;
+% save_figures = false;
 
 % Experiment name (used for saving files)
 experiment_name = 'piecewise_1patch';
@@ -24,7 +24,7 @@ end
 
 %% ========== Algorithm Parameters ==========
 tol = 0.001;
-kmax = 1500;
+kmax = 2000;
 N = 129;
 x = linspace(-1, 1, N);
 z = linspace(-1, 1, N);
@@ -38,6 +38,7 @@ backCond = 1;             % background value
 
 % Fixed step size (if needed)
 use_fixed_alpha = false;
+% use_fixed_alpha = true;
 fixed_alpha = 0.01;
 
 %% ========== Piecewise Solution Configuration ==========
@@ -90,7 +91,7 @@ niu = 1;
 % (I - niu laplace) c0 = 0, with exact Dirichlet boundary
 % initial guess c0
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
-c = c0;
+% c = c0;
 
 % Initialize xi using regularization inverse
 % xi_0 = nabla \Theta^* (c_0), i.e., find xi such that apply_regularization(xi) = c0
@@ -115,6 +116,7 @@ switch regularization_type
 end
 % Compute initial c from xi to ensure consistency
 c = apply_regularization(xi, regularization_type, beta, backCond, c_min, N);
+c0 = c;
 
 %% ========== Main Iteration ==========
 energy = 1e9;

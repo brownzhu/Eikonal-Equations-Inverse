@@ -16,7 +16,7 @@ z = linspace(-1, 1, N);
 % c_exact = ones(N);
 % c_exact = 3 - (1/2)*exp(-(X.^2 + (Z-0.5).^2)/0.5.^2) - exp(-(X.^2 + (Z-1.25).^2)/0.5.^2);
 % load c_data/example_4
-% load D:\桌面\codes\examples&results\results\example_4\c
+load /Users/zhukai/Documents/code/MATLAB/Eikonal equations/Marmousi4Yuxiao/marmousi_smooth.txt
 
 
 % piece wise solution

@@ -4,3 +4,6 @@ Yuxiao:
 1. Or you will use the txt files to read the data, which give you the 
 velocity directly.
   
+The original Marmousi model is sampled on a 24m-by-24m grid, consisting of 384
+samples in the x-direction and 122 samples in the z-direction; therefore the model
+dimension is 9.192km long in the x-direction and 2.904km deep in the z-direction.

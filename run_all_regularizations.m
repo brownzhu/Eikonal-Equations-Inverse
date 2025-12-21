@@ -7,21 +7,22 @@ format long
 
 %% ========== Common Parameters ==========
 tol = 0.001;
-kmax = 1500;
+kmax = 600;
 N = 129;
 x = linspace(-1, 1, N);
 z = linspace(-1, 1, N);
 [X, Z] = meshgrid(x, z);
 
 % Landweber parameters
-beta = 10.0;
+beta = 5.0;
 mu_0 = 0.8*(1 - 1/1.05);
 mu_1 = 600;
 backCond = 1;
 c_min = 0.5;
 
 % Fixed step size
-use_fixed_alpha = true;
+% use_fixed_alpha = true;
+use_fixed_alpha = false;
 fixed_alpha = 0.01;
 
 % Experiment configuration
@@ -68,7 +69,7 @@ niu = 1;
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
 
 %% ========== Run Three Regularization Methods ==========
-regularization_types = {'L1', 'L2', 'TV'};
+regularization_types = {'L1','L2', 'TV'};
 results = struct();
 
 for reg_idx = 1:length(regularization_types)

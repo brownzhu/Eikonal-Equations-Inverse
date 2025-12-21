@@ -30,7 +30,8 @@ format long
 
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
-regularization_type = 'TV';
+% regularization_type = 'TV';
+regularization_type = 'L2';
 
 % Whether to save figures
 save_figures = true;
@@ -119,10 +120,10 @@ if exist(marmousi_file, 'file')
 else
     error('Marmousi file not found: %s', marmousi_file);
 end
-
+c_exact = c_exact / 1000; % m/s transform to km/s
 %% ========== Algorithm Parameters ==========
-tol = 0.001;
-kmax = 1500;
+tol = 1e-8;
+kmax = 500;
 
 % Landweber parameters
 beta = 10.0;              % regularization strength
@@ -134,7 +135,7 @@ backCond = mean(c_exact(:));  % background value (use mean velocity)
 c_min = min(c_exact(:)) * 0.9;
 
 % Fixed step size (if needed)
-use_fixed_alpha = false;
+use_fixed_alpha = true;
 fixed_alpha = 0.01;
 
 %% ========== Source Points Configuration ==========

@@ -17,7 +17,7 @@ format long
 
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
-regularization_type = 'TV';
+regularization_type = 'L2';
 
 % Whether to save figures
 save_figures = true;
@@ -129,7 +129,7 @@ for level = 1:length(subsample_levels)
     else
         c_exact = c_marmousi_full;
     end
-    
+    c_exact = c_exact/1000;
     backCond = mean(c_exact(:));
     c_min = min(c_exact(:)) * 0.9;
     
