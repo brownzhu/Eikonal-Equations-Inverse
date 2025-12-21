@@ -79,8 +79,10 @@ for reg_idx = 1:length(regularization_types)
     
     tic
     
-    % Initialize xi and apply regularization to get initial c
+    % Initialize
+    c = c0;
     xi = c0;
+    % Compute initial c from xi to ensure consistency
     c = apply_regularization(xi, reg_type, beta, backCond, c_min, N);
     energy = 1e9;
     resn_set = [];

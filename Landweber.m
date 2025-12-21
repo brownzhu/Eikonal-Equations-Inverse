@@ -91,8 +91,12 @@ niu = 1;
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
 c = c0;
 
-% initial xi = nabla \Theta^* (xi_0)
+% Initialize xi using regularization inverse
+% xi_0 = nabla \Theta^* (c_0), i.e., find xi such that apply_regularization(xi) = c0
+% For simplicity, we use c0 as initial guess for xi
 xi = c0;
+% Compute initial c from xi to ensure consistency
+c = apply_regularization(xi, regularization_type, beta, backCond, c_min, N);
 
 %% ========== Main Iteration ==========
 energy = 1e9;
@@ -141,26 +145,8 @@ for k = 1:kmax
     % Update xi
     xi = xi + alpha * cstar;
     
-    % ========== Apply Regularization ==========
-    switch regularization_type
-        case 'TV'
-            % Total Variation regularization via PDHG
-            [c, ~] = TV_PDHG_host(zeros(N), zeros(N), xi, 1/beta, 200, 0);
-            
-        case 'L2'
-            % L2 regularization (Tikhonov)
-            c = xi;
-            
-        case 'L1'
-            % L1 regularization (Soft thresholding)
-            tmp = xi - backCond;
-            c = sign(tmp) .* max(abs(tmp) - beta, 0) + backCond;
-            
-        otherwise
-            error('Unknown regularization type: %s', regularization_type);
-    end
-    
-    c = max(c, c_min);
+    % Apply Regularization using the unified function
+    c = apply_regularization(xi, regularization_type, beta, backCond, c_min, N);
     
     % Print progress
     if mod(k, 10) == 0
