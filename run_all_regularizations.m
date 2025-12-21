@@ -79,9 +79,26 @@ for reg_idx = 1:length(regularization_types)
     
     tic
     
-    % Initialize
-    c = c0;
-    xi = c0;
+    % Initialize xi using regularization inverse
+    % xi_0 = nabla \Theta^* (c_0), i.e., find xi such that apply_regularization(xi) = c0
+    switch reg_type
+        case 'L2'
+            xi = c0;
+
+        case 'L1'
+            q0 = sign(c0 - backCond);
+            xi = c0 + beta * q0;
+
+        case 'TV'
+            w1 = zeros(size(c0)); 
+            w2 = zeros(size(c0));
+            [~, w1, w2] = TV_PDHG_host(w1, w2, c0, beta, 100, 1e-6);
+
+            div_w = ([w1(:,1), w1(:,2:end)-w1(:,1:end-1)] + ...
+                     [w2(1,:); w2(2:end,:)-w2(1:end-1,:)]);
+            q0 = -div_w;
+            xi = c0 + beta * q0;
+    end
     % Compute initial c from xi to ensure consistency
     c = apply_regularization(xi, reg_type, beta, backCond, c_min, N);
     energy = 1e9;

@@ -10,8 +10,8 @@ regularization_type = 'TV';
 % regularization_type = 'L2';
 
 % Whether to save figures
-save_figures = true;
-% save_figures = false;
+% save_figures = true;
+save_figures = false;
 
 % Experiment name (used for saving files)
 experiment_name = 'piecewise_1patch';
@@ -44,7 +44,7 @@ fixed_alpha = 0.01;
 % Base layer
 c_exact = ones(N);
 c_min = 0.5;
-y
+
 % patch 1: central rectangle (positive perturbation)
 patch1_enabled = true;
 if patch1_enabled
@@ -88,13 +88,31 @@ dy = (z(end) - z(1)) / (J-1);
 
 niu = 1;
 % (I - niu laplace) c0 = 0, with exact Dirichlet boundary
+% initial guess c0
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
 c = c0;
 
 % Initialize xi using regularization inverse
 % xi_0 = nabla \Theta^* (c_0), i.e., find xi such that apply_regularization(xi) = c0
 % For simplicity, we use c0 as initial guess for xi
-xi = c0;
+switch regularization_type
+    case 'L2'
+        xi = c0;
+
+    case 'L1'
+        q0  = sign(c0 - backCond);
+        xi = c0 + beta * q0;
+
+    case 'TV'
+        w1 = zeros(size(c0)); 
+        w2 = zeros(size(c0));
+        [~, w1, w2] = TV_PDHG_host(w1, w2, c0, beta, 100, 1e-6);
+
+        div_w = ([w1(:,1), w1(:,2:end)-w1(:,1:end-1)] + ...
+                 [w2(1,:); w2(2:end,:)-w2(1:end-1,:)]);
+        q0  = -div_w;
+        xi = c0 + beta * q0;
+end
 % Compute initial c from xi to ensure consistency
 c = apply_regularization(xi, regularization_type, beta, backCond, c_min, N);
 
