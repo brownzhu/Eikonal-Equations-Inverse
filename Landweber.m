@@ -6,11 +6,11 @@ format long
 
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
-regularization_type = 'TV';
+% regularization_type = 'TV';
 % regularization_type = 'L2';
-% regularization_type = 'L1';
+regularization_type = 'L1';
 % Whether to save figures
-save_figures = true;
+save_figures = false;
 % save_figures = false;
 
 % Experiment name (used for saving files)
@@ -24,14 +24,14 @@ end
 
 %% ========== Algorithm Parameters ==========
 tol = 0.001;
-kmax = 2000;
+kmax = 1200;
 N = 129;
 x = linspace(-1, 1, N);
 z = linspace(-1, 1, N);
 [X, Z] = meshgrid(x, z);
 
 % Landweber parameters
-beta = 10.0;              % regularization strength
+beta = 5.0;              % regularization strength
 mu_0 = 0.8*(1 - 1/1.05);  % step size parameter
 mu_1 = 600;               % step size upper bound
 backCond = 1;             % background value
@@ -138,7 +138,7 @@ for k = 1:kmax
         resn_power_ = L2NormBoundary(T, T_star, dx, dy)^2;
         resn_power = resn_power + resn_power_;
         energy_p = energy_p + EnergyFun(T, T_star, dx, dy);
-        cstar = cstar + cStarSolver(T, T_star, dx, I, J, c);
+        cstar = cstar + cStarSolver(T, T_star, dx, dy, I, J, c);
     end
     
     if energy_p < tol

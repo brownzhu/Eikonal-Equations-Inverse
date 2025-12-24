@@ -20,7 +20,7 @@ format long
 regularization_type = 'L2';
 
 % Whether to save figures
-save_figures = true;
+save_figures = false;
 
 % Experiment name
 experiment_name = 'marmousi_multires';
@@ -72,7 +72,7 @@ beta = 10.0;
 mu_0 = 0.8*(1 - 1/1.05);
 mu_1 = 600;
 
-use_fixed_alpha = false;
+use_fixed_alpha = true;
 fixed_alpha = 0.01;
 
 %% ========== Source Configuration ==========
@@ -129,20 +129,27 @@ for level = 1:length(subsample_levels)
     else
         c_exact = c_marmousi_full;
     end
-    c_exact = c_exact/1000;
     backCond = mean(c_exact(:));
     c_min = min(c_exact(:)) * 0.9;
     
     fprintf('Velocity range: [%.3f, %.3f] km/s\n', min(c_exact(:)), max(c_exact(:)));
     
     %% Source points for current level
-    src_x_indices = round(linspace(20/subsample, (Nx_orig-20)/subsample, num_src_x));
-    src_x_indices = max(2, min(src_x_indices, Nx-1));  % ensure valid indices
-    src_z_index = 1;
+    % src_x_indices = round(linspace(20/subsample, (Nx_orig-20)/subsample, num_src_x));
+    % src_x_indices = max(2, min(src_x_indices, Nx-1));  % ensure valid indices
+    % src_z_index = 1;   % ???
     
+    % fixed_pt_list = [];
+    % for i = 1:length(src_x_indices)
+    %     fixed_pt_list = [fixed_pt_list; 0, src_z_index, src_x_indices(i)]; % ???
+    % end
+
     fixed_pt_list = [];
-    for i = 1:length(src_x_indices)
-        fixed_pt_list = [fixed_pt_list; 0, src_z_index, src_x_indices(i)];
+    for m = 1:4
+        for n = 1:4
+            fixed_pt_list = [fixed_pt_list; 0, m*25, n*25];
+            % Add data row by row
+        end
     end
     
     fprintf('Number of sources: %d\n', size(fixed_pt_list, 1));

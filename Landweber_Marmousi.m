@@ -6,23 +6,7 @@
 %   - Grid spacing: 24m x 24m
 %   - Physical dimensions: 9.192 km (x) x 2.904 km (z)
 %
-% Why Downsampling?
-% -----------------
-% The original Marmousi model has 384 x 122 = 46,848 grid points.
-% For the inverse problem using Landweber iteration:
-%   1. Each iteration requires solving Eikonal equations for ALL source points
-%   2. With N_src sources, we solve 2*N_src Eikonal equations per iteration
-%   3. Each Eikonal solve has O(N*M*log(N*M)) complexity
-%   4. Memory: storing gradients, travel times, etc. scales as O(N*M)
-%
-% Example computation time estimate:
-%   - Full resolution (384x122): ~10-30 seconds per iteration
-%   - Downsampled 3x (128x41): ~1-3 seconds per iteration
-%   - For 1000 iterations: 3-8 hours vs 15-50 minutes
-%
-% Recommendation:
-%   - Use downsampling (subsample=2 or 3) for algorithm development/testing
-%   - Use full resolution for final production runs
+% This version uses fixed grid size (Nx, Nz) without multi-resolution.
 
 clc; clear; close all
 tic
@@ -34,7 +18,7 @@ format long
 regularization_type = 'L2';
 
 % Whether to save figures
-save_figures = true;
+save_figures = false;
 
 % Experiment name
 experiment_name = 'marmousi_full';
@@ -46,26 +30,9 @@ if save_figures && ~exist(save_dir, 'dir')
 end
 
 %% ========== Marmousi Grid Configuration ==========
-% Original Marmousi parameters
-Nx_orig = 384;      % original samples in x-direction
-Nz_orig = 122;      % original samples in z-direction
-dx_orig = 24;       % original grid spacing in meters
-dz_orig = 24;
-
-% Subsample factor (set to 1 for full resolution)
-% subsample = 1: full resolution (384 x 122) - slow but accurate
-% subsample = 2: half resolution (192 x 61) - moderate speed
-% subsample = 3: third resolution (128 x 41) - fast for testing
-subsample = 1;
-
-% Compute grid dimensions
-if subsample == 1
-    Nx = Nx_orig;
-    Nz = Nz_orig;
-else
-    Nx = ceil(Nx_orig / subsample);
-    Nz = ceil(Nz_orig / subsample);
-end
+% Original Marmousi parameters (directly use original resolution)
+Nx = 384;  % samples in x-direction
+Nz = 122;  % samples in z-direction
 
 % Physical dimensions (in km)
 Lx = 9.192;  % total length in x (km)
@@ -81,52 +48,41 @@ z = linspace(0, Lz, Nz);
 [X, Z] = meshgrid(x, z);
 
 fprintf('========== Grid Configuration ==========\n');
-fprintf('Subsample factor: %d\n', subsample);
 fprintf('Grid size: %d x %d = %d points\n', Nx, Nz, Nx*Nz);
 fprintf('Physical size: %.3f km x %.3f km\n', Lx, Lz);
 fprintf('Grid spacing: dx=%.4f km, dz=%.4f km\n', dx, dy);
 
 %% ========== Load Marmousi Velocity Model ==========
-% Load velocity data from text file
+% Load velocity data from text file (directly use original resolution)
 marmousi_file = fullfile(pwd, 'Marmousi4Yuxiao', 'marmousi_smooth.txt');
 if exist(marmousi_file, 'file')
     velocity_data = load(marmousi_file);
     fprintf('Loaded Marmousi data: %d x %d\n', size(velocity_data, 1), size(velocity_data, 2));
     
-    % Reshape to original grid (122 rows x 384 columns)
-    % Note: check if data needs transposing based on file format
-    if size(velocity_data, 1) == Nz_orig && size(velocity_data, 2) == Nx_orig
-        c_marmousi = velocity_data;
-    elseif size(velocity_data, 1) == Nx_orig && size(velocity_data, 2) == Nz_orig
-        c_marmousi = velocity_data';
-    elseif numel(velocity_data) == Nx_orig * Nz_orig
+    % Reshape to grid (122 rows x 384 columns)
+    if size(velocity_data, 1) == Nz && size(velocity_data, 2) == Nx
+        c_exact = velocity_data;
+    elseif size(velocity_data, 1) == Nx && size(velocity_data, 2) == Nz
+        c_exact = velocity_data';
+    elseif numel(velocity_data) == Nx * Nz
         % Data is a vector, reshape it
-        c_marmousi = reshape(velocity_data, Nz_orig, Nx_orig);
+        c_exact = reshape(velocity_data, Nz, Nx);
     else
         error('Unexpected Marmousi data dimensions: %d x %d', size(velocity_data, 1), size(velocity_data, 2));
     end
     
-    % Downsample if needed
-    if subsample > 1
-        c_exact = c_marmousi(1:subsample:end, 1:subsample:end);
-        % Ensure correct size
-        c_exact = c_exact(1:Nz, 1:Nx);
-    else
-        c_exact = c_marmousi;
-    end
-    
     fprintf('Velocity model size: %d x %d\n', size(c_exact, 1), size(c_exact, 2));
-    fprintf('Velocity range: [%.2f, %.2f] km/s\n', min(c_exact(:)), max(c_exact(:)));
+    fprintf('Velocity range: [%.2f, %.2f] m/s\n', min(c_exact(:)), max(c_exact(:)));
 else
     error('Marmousi file not found: %s', marmousi_file);
 end
 c_exact = c_exact / 1000; % m/s transform to km/s
 %% ========== Algorithm Parameters ==========
 tol = 1e-8;
-kmax = 500;
+kmax = 50;
 
 % Landweber parameters
-beta = 10.0;              % regularization strength
+beta = 1.0;              % regularization strength
 mu_0 = 0.8*(1 - 1/1.05);  % step size parameter
 mu_1 = 600;               % step size upper bound
 backCond = mean(c_exact(:));  % background value (use mean velocity)
@@ -135,27 +91,31 @@ backCond = mean(c_exact(:));  % background value (use mean velocity)
 c_min = min(c_exact(:)) * 0.9;
 
 % Fixed step size (if needed)
-use_fixed_alpha = true;
+use_fixed_alpha = false;
 fixed_alpha = 0.01;
 
 %% ========== Source Points Configuration ==========
-% Configure source points on the surface (z = 0)
-% For seismic, sources are typically on the surface
-num_src_x = 8;  % number of sources in x-direction
-src_x_indices = round(linspace(20, Nx-20, num_src_x));
-src_z_index = 1;  % surface (z = 0)
+% Configure source points
+% Format: [0, row_index, col_index]
+
+num_src_x = 4;  % number of sources in x-direction
+num_src_z = 4;  % number of sources in z-direction
+
+% Calculate source spacing
+src_x_step = floor((Nx - 2) / (num_src_x + 1));
+src_z_step = floor((Nz - 2) / (num_src_z + 1));
 
 fixed_pt_list = [];
-for i = 1:length(src_x_indices)
-    % Format: [0, row_index, col_index]
-    fixed_pt_list = [fixed_pt_list; 0, src_z_index, src_x_indices(i)];
+for m = 1:num_src_z
+    for n = 1:num_src_x
+        src_z_idx = m * src_z_step;
+        src_x_idx = n * src_x_step;
+        fixed_pt_list = [fixed_pt_list; 0, src_z_idx, src_x_idx];
+    end
 end
 
 num_sources = size(fixed_pt_list, 1);
 fprintf('Number of sources: %d\n', num_sources);
-fprintf('Source x-positions (km): ');
-fprintf('%.2f ', x(src_x_indices));
-fprintf('\n');
 
 %% ========== Initialization ==========
 I = Nz;  % rows (z-direction)
@@ -164,7 +124,7 @@ J = Nx;  % columns (x-direction)
 niu = 1;
 % Initial guess: solve smoothed version with exact boundary
 c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
-c = c0;
+
 
 % Initialize xi using regularization inverse
 switch regularization_type
@@ -203,13 +163,13 @@ for k = 1:kmax
     cstar = 0;
     resn_power = 0; 
     
-    parfor p_num = 1:size(fixed_pt_list, 1)
+    parfor p_num = 1:size(fixed_pt_list, 1) %parfor
         T = TravelTime_solver(c, fixed_pt_list(p_num, :), dx, dy, I, J);
         T_star = TravelTime_solver(c_exact, fixed_pt_list(p_num, :), dx, dy, I, J);
         resn_power_ = L2NormBoundary(T, T_star, dx, dy)^2;
         resn_power = resn_power + resn_power_;
         energy_p = energy_p + EnergyFun(T, T_star, dx, dy);
-        cstar = cstar + cStarSolver(T, T_star, dx, I, J, c);
+        cstar = cstar + cStarSolver(T, T_star, dx, dy, I, J, c);
     end
     
     if energy_p < tol
@@ -374,7 +334,6 @@ if save_figures
     experiment_data.experiment_name = experiment_name;
     experiment_data.Nx = Nx;
     experiment_data.Nz = Nz;
-    experiment_data.subsample = subsample;
     experiment_data.Lx = Lx;
     experiment_data.Lz = Lz;
     experiment_data.beta = beta;
