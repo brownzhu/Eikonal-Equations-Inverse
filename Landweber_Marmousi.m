@@ -15,10 +15,11 @@ format long
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
 % regularization_type = 'TV';
+% regularization_type = 'L1';
 regularization_type = 'L2';
 
 % Whether to save figures
-save_figures = false;
+save_figures = true;
 
 % Experiment name
 experiment_name = 'marmousi_full';
@@ -78,8 +79,8 @@ else
 end
 c_exact = c_exact / 1000; % m/s transform to km/s
 %% ========== Algorithm Parameters ==========
-tol = 1e-8;
-kmax = 50;
+tol = 1e-12;
+kmax = 2000;
 
 % Landweber parameters
 beta = 1.0;              % regularization strength
@@ -110,7 +111,9 @@ for m = 1:num_src_z
     for n = 1:num_src_x
         src_z_idx = m * src_z_step;
         src_x_idx = n * src_x_step;
-        fixed_pt_list = [fixed_pt_list; 0, src_z_idx, src_x_idx];
+        % TravelTime_solver expects format: [val, j, i]
+        % where j = column index (x), i = row index (z)
+        fixed_pt_list = [fixed_pt_list; 0, src_x_idx, src_z_idx];
     end
 end
 
