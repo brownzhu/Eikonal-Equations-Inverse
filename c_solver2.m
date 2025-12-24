@@ -66,17 +66,18 @@ D = -1/dx^2 * speye(N-2);
 
 % Assemble full 2D operator using Kronecker products
 % Unknowns ordered column-wise: u(2:N-1, 2), u(2:N-1, 3), ..., u(2:N-1, M-1)
+% MATLAB's (:) operator is column-major, so f(:) stacks columns
 e = ones(M-2, 1);
 A = kron(speye(M-2), C) + kron(spdiags([e e], [-1 1], M-2, M-2), D);
 
 % Solve the linear system
-% f is transposed to match column-major ordering of unknowns
-f = f'; 
+% No transpose needed: f(:) already in column-major order matching A
 u_vec = A \ f(:);
 
 % Assemble solution with boundary values
+% reshape with (N-2, M-2) matches the column-major ordering
 u = zeros(N, M);
-u(2:N-1, 2:M-1) = reshape(u_vec, M-2, N-2)';
+u(2:N-1, 2:M-1) = reshape(u_vec, N-2, M-2);
 u(:, [1, end]) = c_boundary(:, [1, end]);
 u([1, end], :) = c_boundary([1, end], :);
 
