@@ -24,12 +24,6 @@ save_figures = true;
 % Experiment name
 experiment_name = 'marmousi_full';
 
-% Create save directory
-save_dir = fullfile(pwd, 'results', [experiment_name '_' regularization_type]);
-if save_figures && ~exist(save_dir, 'dir')
-    mkdir(save_dir);
-end
-
 %% ========== Marmousi Grid Configuration ==========
 % Original Marmousi parameters (directly use original resolution)
 Nx = 384;  % samples in x-direction
@@ -83,10 +77,16 @@ tol = 1e-12;
 kmax = 2000;
 
 % Landweber parameters
-beta = 1.0;              % regularization strength
+beta = 1;              % regularization strength
 mu_0 = 0.8*(1 - 1/1.05);  % step size parameter
 mu_1 = 600;               % step size upper bound
 backCond = mean(c_exact(:));  % background value (use mean velocity)
+
+% Create save directory (after beta is defined)
+save_dir = fullfile(pwd, 'results', sprintf('%s_%s_beta%.2f', experiment_name, regularization_type, beta));
+if save_figures && ~exist(save_dir, 'dir')
+    mkdir(save_dir);
+end
 
 % Minimum velocity constraint
 c_min = min(c_exact(:)) * 0.9;
@@ -159,7 +159,10 @@ dual_norm_set = [];
 
 fprintf('\n========== Starting Landweber Iteration ==========\n');
 fprintf('Regularization: %s, beta = %.2f\n', regularization_type, beta);
-
+resid_min = 1e8;
+error_min = 1e8;
+c_resi_min = 0;
+c_error_min = 0;
 for k = 1:kmax
     
     energy_p = 0;
@@ -201,7 +204,17 @@ for k = 1:kmax
     
     % Apply Regularization
     c = apply_regularization(xi, regularization_type, beta, backCond, c_min, max(I, J));
-    
+    itr_error = norm(c - c_exact, 'fro');
+    if resid_min > resn_power
+        c_resi_min = c;
+        resid_min = resn_power;
+    end
+
+    if error_min > itr_error
+        c_error_min = c;
+        error_min = itr_error;
+    end
+
     % Print progress
     if mod(k, 10) == 0
         fprintf('Iter %4d | Energy = %.6e | Residual = %.6e | alpha = %.3e\n', ...
@@ -215,7 +228,6 @@ elapsed_time = toc;
 %% ========== Results Summary ==========
 final_error = norm(c - c_exact, 'fro') * dx * dy;
 relative_error = norm(c - c_exact, 'fro') / norm(c_exact, 'fro');
-
 fprintf('\n========== Results Summary ==========\n');
 fprintf('Regularization type: %s\n', regularization_type);
 fprintf('Total iterations: %d\n', total_iterations);
@@ -225,14 +237,14 @@ fprintf('Elapsed time: %.2f seconds\n', elapsed_time);
 
 %% ========== Figure 1: Velocity Model Comparison ==========
 fig1 = figure('Position', [100, 100, 1400, 800]);
-sgtitle(sprintf('Marmousi Inversion with %s Regularization', regularization_type), ...
+sgtitle(sprintf('Marmousi Inversion with %s Regularization (\\beta = %.2f)', regularization_type, beta), ...
         'FontSize', 14, 'FontWeight', 'bold');
 
 % Consistent colorbar limits
 cmin_vel = min([c_exact(:); c(:); c0(:)]);
 cmax_vel = max([c_exact(:); c(:); c0(:)]);
 
-subplot(2, 2, 1)
+subplot(3, 2, 1)
 imagesc(x, z, c_exact)
 xlabel('x (km)', 'FontSize', 12)
 ylabel('Depth (km)', 'FontSize', 12)
@@ -241,9 +253,9 @@ caxis([cmin_vel, cmax_vel])
 colorbar
 colormap(jet)
 axis tight
-set(gca, 'YDir', 'reverse')  % depth increases downward
+axis xy  % z increases upward (normal orientation)
 
-subplot(2, 2, 2)
+subplot(3, 2, 2)
 imagesc(x, z, c0)
 xlabel('x (km)', 'FontSize', 12)
 ylabel('Depth (km)', 'FontSize', 12)
@@ -251,26 +263,49 @@ title('Initial Guess', 'FontWeight', 'bold', 'FontSize', 12)
 caxis([cmin_vel, cmax_vel])
 colorbar
 axis tight
-set(gca, 'YDir', 'reverse')
+axis xy
 
-subplot(2, 2, 3)
+subplot(3, 2, 3)
 imagesc(x, z, c)
 xlabel('x (km)', 'FontSize', 12)
 ylabel('Depth (km)', 'FontSize', 12)
-title(sprintf('Reconstructed (%s)', regularization_type), 'FontWeight', 'bold', 'FontSize', 12)
+title(sprintf('Reconstructed (%s, \\beta=%.2f)', regularization_type, beta), 'FontWeight', 'bold', 'FontSize', 12)
 caxis([cmin_vel, cmax_vel])
 colorbar
 axis tight
-set(gca, 'YDir', 'reverse')
+axis xy
 
-subplot(2, 2, 4)
+
+subplot(3, 2, 4)
 imagesc(x, z, abs(c - c_exact))
 xlabel('x (km)', 'FontSize', 12)
 ylabel('Depth (km)', 'FontSize', 12)
 title('Absolute Error', 'FontWeight', 'bold', 'FontSize', 12)
 colorbar
 axis tight
-set(gca, 'YDir', 'reverse')
+axis xy
+
+subplot(3, 2, 5)
+imagesc(x, z, c_resi_min)
+xlabel('x (km)', 'FontSize', 12)
+ylabel('Depth (km)', 'FontSize', 12)
+title('Minimal Residual Solution: $\|T(c_n)-T^\ast\|$', ...
+      'Interpreter','latex','FontWeight','bold','FontSize',12)
+caxis([cmin_vel, cmax_vel])
+colorbar
+axis tight
+axis xy
+
+subplot(3, 2, 6)
+imagesc(x, z, c_error_min)
+xlabel('x (km)', 'FontSize', 12)
+ylabel('Depth (km)', 'FontSize', 12)
+title('Minimal Error Solution: $ \|c_n-c_{\mathrm{exact}}\|$', ...
+      'Interpreter','latex','FontWeight','bold','FontSize',12)
+caxis([cmin_vel, cmax_vel])
+colorbar
+axis tight
+axis xy
 
 if save_figures
     saveas(fig1, fullfile(save_dir, 'velocity_comparison.png'));
@@ -280,7 +315,7 @@ end
 
 %% ========== Figure 2: Convergence ==========
 fig2 = figure('Position', [100, 100, 1200, 500]);
-sgtitle('Convergence Analysis', 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(sprintf('Convergence Analysis (%s, \\beta = %.2f)', regularization_type, beta), 'FontSize', 14, 'FontWeight', 'bold');
 
 subplot(1, 2, 1)
 semilogy(energy(2:end), 'LineWidth', 1.5)
@@ -304,7 +339,7 @@ end
 
 %% ========== Figure 3: Depth Profiles ==========
 fig3 = figure('Position', [100, 100, 1200, 400]);
-sgtitle('Velocity Profiles', 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(sprintf('Velocity Profiles (%s, \\beta = %.2f)', regularization_type, beta), 'FontSize', 14, 'FontWeight', 'bold');
 
 % Select profile locations
 x_profiles = [Lx*0.25, Lx*0.5, Lx*0.75];

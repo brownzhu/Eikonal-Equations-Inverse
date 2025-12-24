@@ -8,20 +8,14 @@ format long
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
 % regularization_type = 'L2';
-% regularization_type = 'L2';
-regularization_type = 'L1';
+regularization_type = 'L2';
+% regularization_type = 'L1';
 
 % Whether to save figures
 save_figures = true;
 
 % Experiment name
 experiment_name = 'rectangular_domain';
-
-% Create save directory
-save_dir = fullfile(pwd, 'results', [experiment_name '_' regularization_type]);
-if save_figures && ~exist(save_dir, 'dir')
-    mkdir(save_dir);
-end
 
 %% ========== Rectangular Domain Configuration ==========
 % Domain: [x_min, x_max] x [z_min, z_max]
@@ -58,6 +52,12 @@ beta = 5.0;               % regularization strength
 mu_0 = 0.8*(1 - 1/1.05);  % step size parameter
 mu_1 = 600;               % step size upper bound
 backCond = 1;             % background value
+
+% Create save directory (after beta is defined)
+save_dir = fullfile(pwd, 'results', sprintf('%s_%s_beta%.2f', experiment_name, regularization_type, beta));
+if save_figures && ~exist(save_dir, 'dir')
+    mkdir(save_dir);
+end
 
 % Fixed step size (if needed)
 use_fixed_alpha = false;
@@ -223,8 +223,8 @@ fprintf('Elapsed time: %.2f seconds\n', elapsed_time);
 
 %% ========== Figure 1: Solution Comparison ==========
 fig1 = figure('Position', [100, 100, 1400, 600]);
-sgtitle(sprintf('Rectangular Domain: Landweber with %s (dx=%.3f, dy=%.3f)', ...
-        regularization_type, dx, dy), 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(sprintf('Rectangular Domain: Landweber with %s (\\beta=%.2f, dx=%.3f, dy=%.3f)', ...
+        regularization_type, beta, dx, dy), 'FontSize', 14, 'FontWeight', 'bold');
 
 % Consistent colorbar limits
 cmin_sol = min([c_exact(:); c(:); c0(:)]);
@@ -252,7 +252,7 @@ subplot(2, 3, 3)
 imagesc(x, z, c)
 xlabel('x', 'FontSize', 12)
 ylabel('z', 'FontSize', 12)
-title(sprintf('c_{solution} (%s)', regularization_type), 'FontWeight', 'bold', 'FontSize', 12)
+title(sprintf('c_{solution} (%s, \\beta=%.2f)', regularization_type, beta), 'FontWeight', 'bold', 'FontSize', 12)
 caxis([cmin_sol, cmax_sol])
 colorbar
 axis xy equal tight
@@ -301,7 +301,7 @@ end
 
 %% ========== Figure 2: Convergence Analysis ==========
 fig2 = figure('Position', [100, 100, 1200, 500]);
-sgtitle(sprintf('Convergence - Rectangular Domain (%s)', regularization_type), ...
+sgtitle(sprintf('Convergence - Rectangular Domain (%s, \\beta=%.2f)', regularization_type, beta), ...
         'FontSize', 14, 'FontWeight', 'bold');
 
 subplot(1, 3, 1)
@@ -333,7 +333,7 @@ end
 
 %% ========== Figure 3: Traveltime Field Example ==========
 fig3 = figure('Position', [100, 100, 1000, 400]);
-sgtitle('Traveltime Field Comparison (Source at center)', 'FontSize', 14, 'FontWeight', 'bold');
+sgtitle(sprintf('Traveltime Field Comparison (%s, \\beta=%.2f)', regularization_type, beta), 'FontSize', 14, 'FontWeight', 'bold');
 
 % Use a source near the center
 center_source = [0, ceil(I/2), ceil(J/2)];
