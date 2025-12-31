@@ -6,15 +6,15 @@ format long
 
 %% ========== Experiment Configuration ==========
 % Regularization type: 'L1', 'L2', 'TV'
-% regularization_type = 'TV';
+regularization_type = 'TV';
 % regularization_type = 'L2';
-regularization_type = 'L1';
+% regularization_type = 'L1';
 % Whether to save figures
-save_figures = false;
+save_figures = true;
 % save_figures = false;
 
 % Experiment name (used for saving files)
-experiment_name = 'piecewise_1patch';
+experiment_name = 'piecewise_1patch_noise';
 
 % Create save directory
 save_dir = fullfile(pwd, 'results', [experiment_name '_' regularization_type]);
@@ -31,7 +31,8 @@ z = linspace(-1, 1, N);
 [X, Z] = meshgrid(x, z);
 
 % Landweber parameters
-beta = 5.0;              % regularization strength
+beta = 3.0;              % regularization strength
+duality_r = 1.1;         % duality mapping J_r r value.
 mu_0 = 0.8*(1 - 1/1.05);  % step size parameter
 mu_1 = 600;               % step size upper bound
 backCond = 1;             % background value
@@ -118,6 +119,40 @@ end
 c = apply_regularization(xi, regularization_type, beta, backCond, c_min, N);
 c0 = c;
 
+
+%% ========== observe data (clean) ==========
+Tstar_all = zeros(I, J, num_sources);
+for p_num = 1:num_sources
+    Tstar_all(:,:,p_num) = TravelTime_solver(c_exact, fixed_pt_list(p_num,:), dx, dy, I, J);
+end
+
+%% ========== add impulse noise on boundary ==========
+p_imp = 0.02;   % 边界点中有 2% 被污染（可调）
+A_rel = 0.10;   % 脉冲幅度 = A_rel * (boundary range)（可调）
+
+Tstar_noisy = Tstar_all;
+rng_seed = 2025;
+rng(rng_seed);
+bmask = false(I,J);
+bmask(1,:) = true; bmask(I,:) = true; bmask(:,1) = true; bmask(:,J) = true;
+bidx = find(bmask);
+
+for p_num = 1:num_sources
+    T0 = Tstar_all(:,:,p_num);
+
+    Tb = T0(bidx);
+    A  = A_rel * (max(Tb) - min(Tb) + eps);   % 每个 source 自适应幅度
+
+    pick = bidx(rand(numel(bidx),1) < p_imp); % 选中要加脉冲的边界点
+    sgn  = sign(randn(numel(pick),1));        % ±1 随机
+
+    T1 = T0;
+    T1(pick) = T1(pick) + A .* sgn;           % “尖峰”脉冲：直接加/减大值
+
+    Tstar_noisy(:,:,p_num) = T1;
+end
+
+
 %% ========== Main Iteration ==========
 energy = 1e9;
 resn_set = [];
@@ -131,23 +166,23 @@ for k = 1:kmax
     
     energy_p = 0;
     cstar = 0;
-    resn_power = 0; 
+    resn_Lr = 0; 
     parfor p_num = 1:size(fixed_pt_list, 1)
         T = TravelTime_solver(c, fixed_pt_list(p_num, :), dx, dy, I, J);
-        T_star = TravelTime_solver(c_exact, fixed_pt_list(p_num, :), dx, dy, I, J);
-        resn_power_ = L2NormBoundary(T, T_star, dx, dy)^2;
-        resn_power = resn_power + resn_power_;
-        energy_p = energy_p + EnergyFun(T, T_star, dx, dy);
-        cstar = cstar + cStarSolver(T, T_star, dx, dy, I, J, c);
+        T_s = Tstar_noisy(:,:,p_num);
+        resn_Lr_ = LrNormBoundary(T, T_s, dx, dy, duality_r)^duality_r;
+        resn_Lr = resn_Lr + resn_Lr_;
+        energy_p = energy_p + EnergyFun(T, T_s, dx, dy);
+        cstar = cstar + cStarSolver(T, T_s, duality_r, dx, dy, I, J, c);
     end
     
     if energy_p < tol
         fprintf('Converged at iteration %d\n', k);
         break
     end
-
+    resn_Lr = (resn_Lr)^(1/duality_r);
     energy = [energy, energy_p];
-    resn_set = [resn_set, resn_power];
+    resn_set = [resn_set, resn_Lr];
     
     % Compute dual norm
     g = cstar;  
@@ -158,7 +193,7 @@ for k = 1:kmax
     if use_fixed_alpha
         alpha = fixed_alpha;
     else
-        alpha = min(mu_0 * resn_power / max(norm_dual_sq, 1e-12), mu_1);
+        alpha = min(mu_0 * resn_Lr^(2*(duality_r - 1) ) / max(norm_dual_sq, 1e-12), mu_1) * resn_Lr^(2-duality_r);
     end
     alpha_set = [alpha_set, alpha];
     
@@ -170,7 +205,7 @@ for k = 1:kmax
     
     % Print progress
     if mod(k, 10) == 0
-        fprintf('Iter %4d | Energy = %.6e | Residual Sq. = %.6e | alpha = %.3e\n', ...
+        fprintf('Iter %4d | Energy = %.6e | Residual  = %.6e | alpha = %.3e\n', ...
                 k, energy(k+1), resn_set(k), alpha_set(k));
     end
 end
@@ -247,9 +282,9 @@ ylabel('Energy', 'FontSize', 11)
 subplot(2, 2, 2)
 semilogy(resn_set(1:end), 'LineWidth', 1.5, 'Color', [0.8500, 0.3250, 0.0980])
 grid on
-title('Residual Power (log scale)', 'FontWeight', 'bold', 'FontSize', 12)
+title('Residual (log scale)', 'FontWeight', 'bold', 'FontSize', 12)
 xlabel('Iteration', 'FontSize', 11)
-ylabel('||r||^2', 'FontSize', 11)
+ylabel('||r||_r', 'FontSize', 11)
 
 subplot(2, 2, 3)
 mid_idx = ceil(N/2);
@@ -325,6 +360,125 @@ if save_figures
     fprintf('Saved: contour_comparison.png\n');
 end
 
+%% ========== Figure 4: Observation Data (Clean vs Noisy) + Boundary 1D ==========
+fig4 = figure('Position', [100, 100, 1600, 850]);
+sgtitle(sprintf('Observation Data Comparison (Clean vs Impulse-Noisy) | Source #%d', 1), ...
+        'FontSize', 14, 'FontWeight', 'bold');
+
+% ---- choose source index to show ----
+p = 1;  % 1..num_sources
+
+% ---- fetch data ----
+Tclean = Tstar_all(:,:,p);
+Tnoisy = Tstar_noisy(:,:,p);
+D      = Tnoisy - Tclean;
+
+% ---- consistent color limits for clean/noisy ----
+climT = [min(Tclean(:)), max(Tclean(:))];
+
+% ===================== (1) Clean full-field =====================
+subplot(2,3,1)
+imagesc(x, z, Tclean);
+axis xy equal tight;
+title('Clean Observation: T^* (Full Field)', 'FontWeight', 'bold');
+xlabel('x'); ylabel('z');
+caxis(climT);
+colorbar;
+
+% ===================== (2) Noisy full-field =====================
+subplot(2,3,2)
+imagesc(x, z, Tnoisy);
+axis xy equal tight;
+title('Noisy Observation: $\tilde{T}^*$ (Impulse Noise on $\partial\Omega$)', ...
+      'FontWeight','bold','Interpreter','latex');
+xlabel('x'); ylabel('z');
+caxis(climT);
+colorbar;
+
+% ===================== (3) Difference full-field =====================
+subplot(2,3,3)
+imagesc(x, z, D);
+axis xy equal tight;
+title('$\Delta = \tilde{T}^* - T^*$ (Full Field)', ...
+      'FontWeight','bold','Interpreter','latex');
+xlabel('x'); ylabel('z');
+colorbar;
+
+% ===================== Boundary 1D construction (arclength s) =====================
+% Boundary traversal (clockwise):
+%   Top:    (i=1,  j=1..J)
+%   Right:  (i=2..I, j=J)
+%   Bottom: (i=I,  j=J-1..1)
+%   Left:   (i=I-1..2, j=1)
+% Corners are included only once.
+
+top_c = Tclean(1, 1:J);          top_n = Tnoisy(1, 1:J);
+rig_c = Tclean(2:I, J);          rig_n = Tnoisy(2:I, J);
+bot_c = Tclean(I, J-1:-1:1);     bot_n = Tnoisy(I, J-1:-1:1);
+lef_c = Tclean(I-1:-1:2, 1);     lef_n = Tnoisy(I-1:-1:2, 1);
+
+bc = [top_c(:); rig_c(:); bot_c(:); lef_c(:)];
+bn = [top_n(:); rig_n(:); bot_n(:); lef_n(:)];
+bd = bn - bc;
+
+% arclength coordinate s with correct physical step sizes (dx on horizontal edges, dy on vertical edges)
+nTop = numel(top_c);            % = J
+nRig = numel(rig_c);            % = I-1
+nBot = numel(bot_c);            % = J-1
+nLef = numel(lef_c);            % = I-2
+
+sTop = (0:(nTop-1))' * dx;
+sRig = sTop(end) + (1:nRig)' * dy;
+sBot = sRig(end) + (1:nBot)' * dx;
+sLef = sBot(end) + (1:nLef)' * dy;
+
+s = [sTop; sRig; sBot; sLef];
+
+% segment boundaries (arclength values)
+s1 = sTop(end);   % end of Top
+s2 = sRig(end);   % end of Right
+s3 = sBot(end);   % end of Bottom
+% s4 = sLef(end); % end of Left (total perimeter)
+
+% ===================== (4) Boundary 1D curves (clean vs noisy) =====================
+subplot(2,3,4)
+h1 = plot(s, bc, 'LineWidth', 1.8, 'DisplayName','T^* (clean)'); hold on
+h2 =plot(s, bn, '--', 'LineWidth', 1.4, 'DisplayName','\~T^* (impulse-noisy)');
+
+xline(s1, ':', 'Top|Right',    'LabelVerticalAlignment','bottom', 'HandleVisibility','off');
+xline(s2, ':', 'Right|Bottom', 'LabelVerticalAlignment','bottom', 'HandleVisibility','off');
+xline(s3, ':', 'Bottom|Left',  'LabelVerticalAlignment','bottom', 'HandleVisibility','off');
+
+% legend('show','Location','best');
+legend([h1 h2], {'$T^*$ (clean)', '$\tilde{T}^*$ (impulse-noisy)'}, ...
+       'Location','best','Interpreter','latex');
+hold off
+
+% ===================== (5) Boundary difference (stem) =====================
+subplot(2,3,5)
+stem(s, bd, 'filled');
+grid on;
+xlabel('Boundary arclength s (same ordering)');
+ylabel('$\Delta(s) = \tilde{T}^*(s) - T^*(s)$', 'Interpreter','latex');
+title('Boundary Noise (Impulse Outliers) | \Delta on \partial\Omega', 'FontWeight','bold');
+
+xline(s1, ':'); xline(s2, ':'); xline(s3, ':');
+
+% ===================== (6) Histogram of boundary noise =====================
+subplot(2,3,6)
+histogram(bd, 60);
+grid on;
+xlabel('\Delta values on \partial\Omega');
+ylabel('Count');
+title('Histogram of Boundary Noise (\Delta)', 'FontWeight','bold');
+
+% ===================== Save =====================
+if save_figures
+    saveas(fig4, fullfile(save_dir, 'contour_comparison.png'));
+    saveas(fig4, fullfile(save_dir, 'contour_comparison.fig'));
+    fprintf('Saved: contour_comparison.png\n');
+end
+
 %% ========== Save Experiment Data ==========
 if save_figures
     % Save all experiment parameters and results
@@ -348,6 +502,15 @@ if save_figures
     experiment_data.c0 = c0;
     experiment_data.x = x;
     experiment_data.z = z;
+    
+    % noise metadata
+    experiment_data.noise.type     = 'impulse_boundary_additive'; % 你用的是“加/减尖峰”
+    experiment_data.noise.p_imp    = p_imp;
+    experiment_data.noise.A_rel    = A_rel;
+    experiment_data.noise.rng_seed = rng_seed;
+    experiment_data.noise.boundary_only = true;   % 语义：只对边界加噪声（如果你确实是这样做的）
+
+    experiment_data.duality_r = duality_r;              % r>1
     
     save(fullfile(save_dir, 'experiment_data.mat'), 'experiment_data');
     fprintf('Saved: experiment_data.mat\n');

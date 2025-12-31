@@ -16,7 +16,7 @@ z = linspace(-1, 1, N);
 % c_exact = ones(N);
 % c_exact = 3 - (1/2)*exp(-(X.^2 + (Z-0.5).^2)/0.5.^2) - exp(-(X.^2 + (Z-1.25).^2)/0.5.^2);
 % load c_data/example_4
-load /Users/zhukai/Documents/code/MATLAB/Eikonal equations/Marmousi4Yuxiao/marmousi_smooth.txt
+% load /Users/zhukai/Documents/code/MATLAB/Eikonal equations/Marmousi4Yuxiao/marmousi_smooth.txt
 
 
 % piece wise solution
@@ -72,7 +72,7 @@ for k = 1: kmax
         T = TravelTime_solver(c, fixed_pt_list(p_num, :), dx, dy, I, J);
         T_star = TravelTime_solver(c_exact, fixed_pt_list(p_num, :), dx, dy, I, J);
         energy_p = energy_p + EnergyFun(T, T_star, dx, dy);
-        cstar = cstar + cStarSolver(T, T_star, dx, I, J, c);
+        cstar = cstar + cStarSolver(T, T_star, dx,dx, I, J, c);
     end
     
     if energy_p < tol
