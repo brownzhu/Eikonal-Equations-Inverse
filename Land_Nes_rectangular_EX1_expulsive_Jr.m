@@ -1,0 +1,538 @@
+%% run_duality_r_sweep.m
+clc; clear; close all;
+format long
+
+% ====== duality mapping r list ======
+r_list = [1.2, 1.5, 1.8, 2.0];
+
+% （可选）总结果汇总
+summary = struct();
+
+for ir = 1:numel(r_list)
+    duality_r = r_list(ir);
+    fprintf('\n\n==============================\n');
+    fprintf(' Running duality_r = %.2f\n', duality_r);
+    fprintf('==============================\n');
+
+    out = run_one_r(duality_r);   % <-- 单次运行
+    summary(ir).duality_r       = duality_r;
+    summary(ir).save_dir        = out.save_dir;
+    summary(ir).final_error     = out.final_error;
+    summary(ir).total_iterations= out.total_iterations;
+    summary(ir).elapsed_time    = out.elapsed_time;
+end
+
+% 保存总汇总
+root_dir = fullfile(pwd,'results','duality_r_sweep');
+if ~exist(root_dir,'dir'); mkdir(root_dir); end
+save(fullfile(root_dir,'summary_all_r.mat'),'summary');
+fprintf('\nAll done. Summary saved to: %s\n', fullfile(root_dir,'summary_all_r.mat'));
+
+% 生成对比图（加载每个r的 experiment_data.mat）
+plot_compare_all_r(summary);
+
+%% ====== Local functions ======
+
+function out = run_one_r(duality_r)
+
+    tic
+
+    %% ========== Experiment Configuration ==========
+    regularization_type = 'L1';  % 你当前用的是 L1
+    save_figures = true;         % <-- 为了“全部存下来”，建议强制 true
+
+    experiment_name = 'rectangular_domain_Nes_';
+
+    %% ========== Rectangular Domain Configuration ==========
+    x_min = -2; x_max = 2;
+    z_min = -1; z_max = 1;
+
+    Nx = 129;
+    Nz = 65;
+
+    x = linspace(x_min, x_max, Nx);
+    z = linspace(z_min, z_max, Nz);
+    [X, Z] = meshgrid(x, z);
+
+    dx = (x_max - x_min) / (Nx - 1);
+    dy = (z_max - z_min) / (Nz - 1);
+
+    %% ========== Algorithm Parameters ==========
+    tol = 0.001;
+    kmax = 1000;
+
+    beta = 0.5;
+    Nes_alpha = 3;
+    Nesterov  = 0;
+
+    niu = 1;
+    % duality_r 由外层传进来
+
+    mu_0 = 0.8*(1 - 1/1.01);
+    mu_1 = 600;
+    backCond = 1;
+
+    use_fixed_alpha = false;
+    fixed_alpha = 0.01;
+
+    %% ========== Save directory (include r) ==========
+    save_dir = fullfile(pwd, 'results', sprintf('%s_%s_beta%.2f_r%.2f', ...
+        experiment_name, regularization_type, beta, duality_r));
+    if save_figures && ~exist(save_dir, 'dir')
+        mkdir(save_dir);
+    end
+
+    %% ========== Exact Solution ==========
+    I = Nz; J = Nx;
+    c_exact = ones(I, J);
+    c_min = 0.01;
+
+    mask1 = (X > -0.8 & X < 0.8 & Z > -0.4 & Z < 0.4);
+    c_exact(mask1) = c_exact(mask1) + 1.5;
+
+    mask2 = (X > -1.8 & X < -1.2 & Z > -0.6 & Z < 0.6);
+    c_exact(mask2) = c_exact(mask2) + 0.8;
+
+    mask3 = (X > 1.2 & X < 1.8 & Z > -0.6 & Z < 0.6);
+    c_exact(mask3) = c_exact(mask3) + 0.8;
+
+    c_exact = max(c_exact, c_min);
+
+    %% ========== Source Points ==========
+    source_grid_x = 6;
+    source_grid_z = 3;
+
+    fixed_pt_list = [];
+    source_spacing_i = floor((I - 2) / (source_grid_z + 1));
+    source_spacing_j = floor((J - 2) / (source_grid_x + 1));
+
+    for m = 1:source_grid_z
+        for n = 1:source_grid_x
+            i_pos = 1 + m * source_spacing_i;
+            j_pos = 1 + n * source_spacing_j;
+            fixed_pt_list = [fixed_pt_list; 0, j_pos, i_pos];
+        end
+    end
+    num_sources = size(fixed_pt_list, 1);
+
+    %% ========== observe data (clean) ==========
+    Tstar_all = zeros(I, J, num_sources);
+    for p_num = 1:num_sources
+        Tstar_all(:,:,p_num) = TravelTime_solver(c_exact, fixed_pt_list(p_num,:), dx, dy, I, J);
+    end
+
+    %% ========== add impulse noise on boundary ==========
+    p_imp   = 0.05;
+    A_rel   = 0.1;
+    sigma   = 0.2;
+    alpha_n = 0.05;
+
+    Tstar_noisy = Tstar_all;
+
+    rng_seed = 2025;
+    rng(rng_seed);
+
+    bmask = false(I,J);
+    bmask(1,:) = true; bmask(I,:) = true; bmask(:,1)=true; bmask(:,J)=true;
+    bidx = find(bmask);
+
+    for p_num = 1:num_sources
+        T0 = Tstar_all(:,:,p_num);
+
+        Tb = T0(bidx);
+        range_Tb = max(Tb) - min(Tb) + eps;
+
+        is_imp  = rand(numel(bidx),1) < p_imp;
+        imp_idx = bidx(is_imp);
+        gauss_idx = bidx(~is_imp);
+
+        A   = A_rel * range_Tb;
+        sgn = sign(randn(numel(imp_idx),1));
+
+        T1 = T0;
+        T1(imp_idx) = T1(imp_idx) + A .* sgn;
+
+        noise_g = sigma*randn(numel(gauss_idx),1);
+        T1(gauss_idx) = T1(gauss_idx) .* (1 + alpha_n * noise_g);
+
+        Tstar_noisy(:,:,p_num) = T1;
+    end
+
+    % ====== compute err_level depends on r (as in your code) ======
+    err_level = 0;
+    for p_num = 1:num_sources
+        T_s = Tstar_noisy(:,:,p_num);
+        err_level_ = LrNormBoundary(Tstar_all(:,:,p_num), T_s, dx, dy, duality_r)^duality_r;
+        err_level = err_level + err_level_;
+    end
+    err_level = err_level^(1/duality_r);
+    disp(err_level);
+
+    %% ========== Initialization ==========
+    c0 = c_solver2(c_exact, zeros(I, J), dx, dy, niu);
+
+    switch regularization_type
+        case 'L2'
+            xi = c0;
+        case 'L1'
+            q0 = sign(c0 - backCond);
+            xi = c0 + beta * q0;
+        case 'TV'
+            w1 = zeros(size(c0)); w2 = zeros(size(c0));
+            [~, w1, w2] = TV_PDHG_host(w1, w2, c0, beta, 100, 1e-6);
+            div_w = ([w1(:,1), w1(:,2:end)-w1(:,1:end-1)] + ...
+                     [w2(1,:); w2(2:end,:)-w2(1:end-1,:)]);
+            q0 = -div_w;
+            xi = c0 + beta * q0;
+    end
+
+    c  = apply_regularization(xi, regularization_type, beta, backCond, c_min, []);
+    c0 = c;
+    xi_n = xi;
+    zeta = 0;
+
+    %% ========== Main Iteration ==========
+    energy = [];
+    resn_set = [];
+    alpha_set = [];
+    dual_norm_set = [];
+    c_error_set = [];
+
+    resn_Lr = 100;
+    k = 1;
+
+    while resn_Lr >= err_level*1.1 && k <= kmax
+
+        energy_p = 0;
+        cstar = 0;
+        resn_Lr = 0;
+        
+        % For parfor: need to accumulate properly
+        resn_Lr_total = 0;
+        energy_p_total = 0;
+        cstar_total = 0;
+
+        if Nesterov
+            Nes_lambda = (k)/(k + Nes_alpha);
+        else
+            Nes_lambda = 0;
+        end
+        zeta = xi + Nes_lambda * (xi - xi_n);
+
+        parfor p_num = 1:num_sources
+            T   = TravelTime_solver(c, fixed_pt_list(p_num, :), dx, dy, I, J);
+            T_s = Tstar_noisy(:,:,p_num);
+
+            resn_Lr_  = LrNormBoundary(T, T_s, dx, dy, duality_r)^duality_r;
+            resn_Lr_total   = resn_Lr_total + resn_Lr_;
+            energy_p_total  = energy_p_total + EnergyFun(T, T_s, dx, dy);
+            cstar_total     = cstar_total + cStarSolver(T, T_s, duality_r, niu, dx, dy, I, J, c);
+        end
+        
+        energy_p = energy_p_total;
+        resn_Lr = resn_Lr_total;
+        cstar = cstar_total;
+
+        if energy_p < tol
+            fprintf('Converged at iteration %d\n', k);
+            break
+        end
+
+        resn_Lr = (resn_Lr)^(1/duality_r);
+        energy = [energy, energy_p];
+        resn_set = [resn_set, resn_Lr];
+
+        g = cstar;
+        norm_dual_sq = sum(g(:).^2) * dx * dy;
+        dual_norm_set = [dual_norm_set, norm_dual_sq];
+
+        if use_fixed_alpha
+            alpha = fixed_alpha;
+        else
+            alpha = min(mu_0 * resn_Lr^(2*(duality_r - 1)) / max(norm_dual_sq, 1e-12), mu_1) ...
+                    * resn_Lr^(2-duality_r);
+        end
+        alpha_set = [alpha_set, alpha];
+
+        xi_n = xi;
+        xi = zeta + alpha * cstar;
+
+        c = apply_regularization(xi, regularization_type, beta, backCond, c_min, []);
+        c_error = norm(c - c_exact, 'fro')*sqrt(dx*dy);
+        c_error_set = [c_error_set, c_error];
+
+        if mod(k,10)==0
+            fprintf('r=%.2f | Iter %4d | Energy=%.3e | Res=%.3e | Err=%.3e | alpha=%.3e\n', ...
+                duality_r, k, energy_p, resn_set(k), c_error_set(k), alpha_set(k));
+        end
+
+        k = k + 1;
+    end
+
+    total_iterations = k;
+    elapsed_time = toc;
+    final_error = norm(c - c_exact, 'fro') * sqrt(dx * dy);
+
+    %% ========== Save experiment_data (always) ==========
+    experiment_data = struct();
+    experiment_data.regularization_type = regularization_type;
+    experiment_data.experiment_name = experiment_name;
+    experiment_data.domain = [x_min, x_max, z_min, z_max];
+    experiment_data.Nx = Nx; experiment_data.Nz = Nz;
+    experiment_data.I = I; experiment_data.J = J;
+    experiment_data.dx = dx; experiment_data.dy = dy;
+
+    experiment_data.beta = beta;
+    experiment_data.tol  = tol;
+    experiment_data.kmax = kmax;
+
+    experiment_data.total_iterations = total_iterations;
+    experiment_data.final_error = final_error;
+    experiment_data.elapsed_time = elapsed_time;
+
+    experiment_data.num_sources = num_sources;
+
+    experiment_data.energy = energy;
+    experiment_data.resn_set = resn_set;
+    experiment_data.alpha_set = alpha_set;
+    experiment_data.dual_norm_set = dual_norm_set;
+    experiment_data.c_error_set = c_error_set;
+
+    experiment_data.c_exact = c_exact;
+    experiment_data.c_solution = c;
+    experiment_data.c0 = c0;
+    experiment_data.x = x;
+    experiment_data.z = z;
+
+    experiment_data.noise.type = 'impulse_boundary_additive';
+    experiment_data.noise.p_imp = p_imp;
+    experiment_data.noise.A_rel = A_rel;
+    experiment_data.noise.rng_seed = rng_seed;
+    experiment_data.noise.boundary_only = true;
+
+    experiment_data.duality_r = duality_r;
+    experiment_data.err_level = err_level;
+
+    if ~exist(save_dir,'dir'); mkdir(save_dir); end
+    save(fullfile(save_dir,'experiment_data.mat'),'experiment_data');
+    fprintf('Saved: %s\n', fullfile(save_dir,'experiment_data.mat'));
+
+    % 绘制精细学术风格的结果图表
+    if save_figures && ~isempty(energy) && ~isempty(resn_set) && ~isempty(c_error_set)
+        % 设置全局字体属性
+        fontname_main = 'Times New Roman';
+        fontsize_main = 11;
+        fontsize_label = 12;
+        fontsize_title = 13;
+        
+        % 定义颜色方案（学术风格）
+        color_energy = [0.2, 0.4, 0.8];   % 深蓝
+        color_residual = [0.8, 0.2, 0.2]; % 深红
+        color_error = [0.2, 0.7, 0.3];    % 深绿
+        
+        fig = figure('Position',[100,100,1600,450]);
+        
+        % Energy curve
+        ax1 = subplot(1,3,1);
+        if length(energy) > 1
+            semilogy(energy(2:end), 'Color', color_energy, 'LineWidth', 1.8, 'LineStyle', '-');
+        else
+            semilogy(energy, 'Color', color_energy, 'LineWidth', 1.8, 'LineStyle', '-');
+        end
+        hold on;
+        grid on;
+        set(ax1, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+        xlabel('Iteration', 'FontName', fontname_main, 'FontSize', fontsize_label);
+        ylabel('Energy $E$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+        title('Energy', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold');
+        set(ax1, 'FontName', fontname_main, 'FontSize', fontsize_main);
+        
+        % Residual curve
+        ax2 = subplot(1,3,2);
+        semilogy(resn_set, 'Color', color_residual, 'LineWidth', 1.8, 'LineStyle', '-');
+        hold on;
+        grid on;
+        set(ax2, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+        xlabel('Iteration', 'FontName', fontname_main, 'FontSize', fontsize_label);
+        ylabel('Residual $\|\mathbf{r}\|_r$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+        title('Residual', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold');
+        set(ax2, 'FontName', fontname_main, 'FontSize', fontsize_main);
+        
+        % c-error curve
+        ax3 = subplot(1,3,3);
+        semilogy(c_error_set, 'Color', color_error, 'LineWidth', 1.8, 'LineStyle', '-');
+        hold on;
+        grid on;
+        set(ax3, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+        xlabel('Iteration', 'FontName', fontname_main, 'FontSize', fontsize_label);
+        ylabel('Error $\|c - c_{\mathrm{exact}}\|_2$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+        title('Solution Error', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold');
+        set(ax3, 'FontName', fontname_main, 'FontSize', fontsize_main);
+        
+        % 总标题
+        sgtitle(sprintf('Convergence Analysis: $r = %.2f$', duality_r), ...
+            'FontName', fontname_main, 'FontSize', 14, 'FontWeight', 'bold', 'Interpreter', 'latex');
+        
+        % 保存高分辨率图片
+        set(fig, 'Renderer', 'painters');
+        set(fig, 'PaperUnits', 'centimeters');
+        set(fig, 'PaperSize', [40, 11.25]);
+        set(fig, 'PaperPosition', [0, 0, 40, 11.25]);
+        print(fig, fullfile(save_dir, 'convergence_curves.pdf'), '-dpdf', '-r300', '-fillpage');
+        saveas(fig, fullfile(save_dir, 'convergence_curves.png'), 'png');
+        close(fig);
+    elseif save_figures
+        warning('Insufficient data to generate convergence plots for r=%.2f', duality_r);
+    end
+
+    out.save_dir = save_dir;
+    out.final_error = final_error;
+    out.total_iterations = total_iterations;
+    out.elapsed_time = elapsed_time;
+end
+
+function plot_compare_all_r(summary)
+    % 生成学术风格的多参数对比图
+    nR = numel(summary);
+    data = cell(nR,1);
+    for i = 1:nR
+        S = load(fullfile(summary(i).save_dir,'experiment_data.mat'));
+        data{i} = S.experiment_data;
+    end
+
+    % 字体和风格设置
+    fontname_main = 'Times New Roman';
+    fontsize_main = 11;
+    fontsize_label = 12;
+    fontsize_title = 13;
+    fontsize_legend = 11;
+    
+    % 颜色方案（多种颜色用于区分不同的r值）
+    colors = {
+        [0.1, 0.3, 0.8],   % 深蓝
+        [0.8, 0.2, 0.2],   % 深红
+        [0.2, 0.7, 0.3],   % 深绿
+        [0.8, 0.6, 0.1],   % 金黄
+        [0.6, 0.2, 0.8],   % 深紫
+        [0.2, 0.7, 0.8],   % 青色
+    };
+    
+    % 线条样式
+    line_styles = {'-', '--', '-.', ':'};
+    
+    root_dir = fullfile(pwd,'results','duality_r_sweep');
+    if ~exist(root_dir,'dir'); mkdir(root_dir); end
+
+    %% 1) Residual 对比图
+    fig1 = figure('Position',[100,100,1200,500], 'Units', 'pixels');
+    ax1 = axes('Parent', fig1);
+    hold(ax1, 'on');
+    grid(ax1, 'on');
+    set(ax1, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    
+    for i = 1:nR
+        color_idx = mod(i-1, numel(colors)) + 1;
+        line_idx = mod(i-1, numel(line_styles)) + 1;
+        
+        % 计算合理的 marker indices
+        data_len = length(data{i}.resn_set);
+        if data_len > 1
+            marker_step = max(1, floor(data_len / 8));
+            marker_indices = 1:marker_step:data_len;
+        else
+            marker_indices = 1;
+        end
+        
+        semilogy(ax1, data{i}.resn_set, 'LineWidth', 2, ...
+            'Color', colors{color_idx}, 'LineStyle', line_styles{line_idx}, ...
+            'DisplayName', sprintf('$r = %.2f$', data{i}.duality_r), 'Marker', 'o', 'MarkerSize', 3, 'MarkerIndices', marker_indices);
+    end
+    
+    xlabel('Iteration $k$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    ylabel('Residual $\|r_k\|_r$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    title('Comparison of Residual for Different $r$', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold', 'Interpreter', 'latex');
+    legend('Location', 'best', 'Interpreter', 'latex', 'FontSize', fontsize_legend, 'FontName', fontname_main);
+    set(ax1, 'FontName', fontname_main, 'FontSize', fontsize_main);
+    
+    set(fig1, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [30, 12.5], 'PaperPosition', [0, 0, 30, 12.5]);
+    print(fig1, fullfile(root_dir,'compare_residual.pdf'), '-dpdf', '-r300', '-fillpage');
+    saveas(fig1, fullfile(root_dir,'compare_residual.png'), 'png');
+    close(fig1);
+
+    %% 2) c-error 对比图
+    fig2 = figure('Position',[100,100,1200,500], 'Units', 'pixels');
+    ax2 = axes('Parent', fig2);
+    hold(ax2, 'on');
+    grid(ax2, 'on');
+    set(ax2, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    
+    for i = 1:nR
+        color_idx = mod(i-1, numel(colors)) + 1;
+        line_idx = mod(i-1, numel(line_styles)) + 1;
+        
+        % 计算合理的 marker indices
+        data_len = length(data{i}.c_error_set);
+        if data_len > 1
+            marker_step = max(1, floor(data_len / 8));
+            marker_indices = 1:marker_step:data_len;
+        else
+            marker_indices = 1;
+        end
+        
+        semilogy(ax2, data{i}.c_error_set, 'LineWidth', 2, ...
+            'Color', colors{color_idx}, 'LineStyle', line_styles{line_idx}, ...
+            'DisplayName', sprintf('$r = %.2f$', data{i}.duality_r), 'Marker', 's', 'MarkerSize', 3, 'MarkerIndices', marker_indices);
+    end
+    
+    xlabel('Iteration $k$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    ylabel('Solution Error $\|c - c_{\mathrm{exact}}\|_2$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    title('Comparison of Solution Error for Different $r$', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold', 'Interpreter', 'latex');
+    legend('Location', 'best', 'Interpreter', 'latex', 'FontSize', fontsize_legend, 'FontName', fontname_main);
+    set(ax2, 'FontName', fontname_main, 'FontSize', fontsize_main);
+    
+    set(fig2, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [30, 12.5], 'PaperPosition', [0, 0, 30, 12.5]);
+    print(fig2, fullfile(root_dir,'compare_c_error.pdf'), '-dpdf', '-r300', '-fillpage');
+    saveas(fig2, fullfile(root_dir,'compare_c_error.png'), 'png');
+    close(fig2);
+
+    %% 3) Step Size α 对比图
+    fig3 = figure('Position',[100,100,1200,500], 'Units', 'pixels');
+    ax3 = axes('Parent', fig3);
+    hold(ax3, 'on');
+    grid(ax3, 'on');
+    set(ax3, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    
+    for i = 1:nR
+        color_idx = mod(i-1, numel(colors)) + 1;
+        line_idx = mod(i-1, numel(line_styles)) + 1;
+        
+        % 计算合理的 marker indices
+        data_len = length(data{i}.alpha_set);
+        if data_len > 1
+            marker_step = max(1, floor(data_len / 8));
+            marker_indices = 1:marker_step:data_len;
+        else
+            marker_indices = 1;
+        end
+        
+        semilogy(ax3, data{i}.alpha_set, 'LineWidth', 2, ...
+            'Color', colors{color_idx}, 'LineStyle', line_styles{line_idx}, ...
+            'DisplayName', sprintf('$r = %.2f$', data{i}.duality_r), 'Marker', '^', 'MarkerSize', 3, 'MarkerIndices', marker_indices);
+    end
+    
+    xlabel('Iteration $k$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    ylabel('Step Size $\alpha_k$', 'FontName', fontname_main, 'FontSize', fontsize_label, 'Interpreter', 'latex');
+    title('Comparison of Step Size for Different $r$', 'FontName', fontname_main, 'FontSize', fontsize_title, 'FontWeight', 'bold', 'Interpreter', 'latex');
+    legend('Location', 'best', 'Interpreter', 'latex', 'FontSize', fontsize_legend, 'FontName', fontname_main);
+    set(ax3, 'FontName', fontname_main, 'FontSize', fontsize_main);
+    
+    set(fig3, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [30, 12.5], 'PaperPosition', [0, 0, 30, 12.5]);
+    print(fig3, fullfile(root_dir,'compare_alpha.pdf'), '-dpdf', '-r300', '-fillpage');
+    saveas(fig3, fullfile(root_dir,'compare_alpha.png'), 'png');
+    close(fig3);
+
+    fprintf('\n========== Compare figures saved to: %s ==========\n', root_dir);
+    fprintf('  - compare_residual.pdf/png\n');
+    fprintf('  - compare_c_error.pdf/png\n');
+    fprintf('  - compare_alpha.pdf/png\n');
+end
