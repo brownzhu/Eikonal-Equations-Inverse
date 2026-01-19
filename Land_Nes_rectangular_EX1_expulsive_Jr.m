@@ -535,4 +535,346 @@ function plot_compare_all_r(summary)
     fprintf('  - compare_residual.pdf/png\n');
     fprintf('  - compare_c_error.pdf/png\n');
     fprintf('  - compare_alpha.pdf/png\n');
+    
+    %% 4) 10个子图的综合对比：4个数值结果 + 4个误差 + 2个cross-section
+    plot_10subplot_comparison(data, root_dir);
+end
+
+function plot_10subplot_comparison(data, root_dir)
+    % 生成包含12个子图的综合对比图 + 每个子图单独存储
+    % 布局（3行4列）：
+    % 第一行：精确解 + r=1.2 + r=1.5 + r=1.8
+    % 第二行：r=2.0 + 误差r=1.2 + 误差r=1.5 + 误差r=1.8
+    % 第三行：误差r=2.0 + cross-section z=0 + cross-section x=0 + 空白
+    
+    nR = numel(data);
+    if nR < 4
+        warning('Need at least 4 r values for comprehensive comparison. Got %d.', nR);
+        return;
+    end
+    
+    % 提取所有4个r值
+    r_indices = 1:4;
+    c_exact = data{1}.c_exact;
+    x = data{1}.x;
+    z = data{1}.z;
+    I = data{1}.I;
+    J = data{1}.J;
+    dx = data{1}.dx;
+    dy = data{1}.dy;
+    
+    % 创建大图（3行4列）
+    fig = figure('Position', [50, 50, 1600, 1200], 'Units', 'pixels');
+    set(fig, 'Color', 'white');
+    
+    % 设置字体
+    fontname_main = 'Times New Roman';
+    fontsize_label = 11;
+    fontsize_title = 12;
+    
+    % 计算全局colorbar范围（对数值图）
+    c_min_all = min(c_exact(:));
+    c_max_all = max(c_exact(:));
+    for i = r_indices
+        c_sol = data{i}.c_solution;
+        c_min_all = min(c_min_all, min(c_sol(:)));
+        c_max_all = max(c_max_all, max(c_sol(:)));
+    end
+    
+    % 误差的colorbar范围
+    err_max_all = 0;
+    for i = r_indices
+        err = abs(data{i}.c_solution - c_exact);
+        err_max_all = max(err_max_all, max(err(:)));
+    end
+    
+    % ========== 第一行：1个精确解 + 3个反演解 ==========
+    % 子图1：精确解
+    ax1 = subplot(3, 4, 1);
+    imagesc(x, z, c_exact, [c_min_all, c_max_all]);
+    set(ax1, 'YDir', 'normal');
+    colorbar(ax1, 'FontSize', fontsize_label-1);
+    title('$c_{\mathrm{exact}}$', 'Interpreter', 'latex', 'FontSize', fontsize_title, 'FontWeight', 'bold');
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    set(ax1, 'FontName', fontname_main, 'FontSize', fontsize_label-1);
+    
+    % 子图2-4：前3个r的反演解
+    for idx = 1:3
+        i = r_indices(idx);
+        ax = subplot(3, 4, 1 + idx);
+        c_sol = data{i}.c_solution;
+        imagesc(x, z, c_sol, [c_min_all, c_max_all]);
+        set(ax, 'YDir', 'normal');
+        colorbar(ax, 'FontSize', fontsize_label-1);
+        title(sprintf('$c_{r=%.2f}$', data{i}.duality_r), 'Interpreter', 'latex', ...
+            'FontSize', fontsize_title, 'FontWeight', 'bold');
+        xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        set(ax, 'FontName', fontname_main, 'FontSize', fontsize_label-1);
+    end
+    
+    % ========== 第二行：1个反演解(r=2.0) + 3个误差 ==========
+    % 子图5：第4个r的反演解
+    ax5 = subplot(3, 4, 5);
+    c_sol = data{4}.c_solution;
+    imagesc(x, z, c_sol, [c_min_all, c_max_all]);
+    set(ax5, 'YDir', 'normal');
+    colorbar(ax5, 'FontSize', fontsize_label-1);
+    title(sprintf('$c_{r=%.2f}$', data{4}.duality_r), 'Interpreter', 'latex', ...
+        'FontSize', fontsize_title, 'FontWeight', 'bold');
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    set(ax5, 'FontName', fontname_main, 'FontSize', fontsize_label-1);
+    
+    % 子图6-8：前3个r的误差
+    for idx = 1:3
+        i = r_indices(idx);
+        ax = subplot(3, 4, 5 + idx);
+        c_sol = data{i}.c_solution;
+        err = abs(c_sol - c_exact);
+        imagesc(x, z, err, [0, err_max_all]);
+        set(ax, 'YDir', 'normal');
+        colorbar(ax, 'FontSize', fontsize_label-1);
+        title(sprintf('Error $r=%.2f$', data{i}.duality_r), 'Interpreter', 'latex', ...
+            'FontSize', fontsize_title, 'FontWeight', 'bold');
+        xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        set(ax, 'FontName', fontname_main, 'FontSize', fontsize_label-1);
+    end
+    
+    % ========== 第三行：1个误差(r=2.0) + 2个cross-section + 1个空白 ==========
+    % 子图9：第4个r的误差
+    ax9 = subplot(3, 4, 9);
+    c_sol = data{4}.c_solution;
+    err = abs(c_sol - c_exact);
+    imagesc(x, z, err, [0, err_max_all]);
+    set(ax9, 'YDir', 'normal');
+    colorbar(ax9, 'FontSize', fontsize_label-1);
+    title(sprintf('Error $r=%.2f$', data{4}.duality_r), 'Interpreter', 'latex', ...
+        'FontSize', fontsize_title, 'FontWeight', 'bold');
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    set(ax9, 'FontName', fontname_main, 'FontSize', fontsize_label-1);
+    
+    % 子图10：Cross-section at z=0
+    ax10 = subplot(3, 4, 10);
+    hold(ax10, 'on');
+    mid_i = ceil(I / 2);
+    plot(x, c_exact(mid_i, :), '-', 'LineWidth', 2.5, 'DisplayName', '$c_{\mathrm{exact}}$', ...
+        'Color', [0, 0, 0]);
+    
+    colors_cross = {[0.1, 0.3, 0.8], [0.8, 0.2, 0.2], [0.2, 0.7, 0.3], [0.8, 0.6, 0.1]};
+    line_styles_cross = {'--', '-.', ':', '-.'};
+    for idx = 1:4
+        i = r_indices(idx);
+        c_sol = data{i}.c_solution;
+        plot(x, c_sol(mid_i, :), line_styles_cross{idx}, 'LineWidth', 2, ...
+            'DisplayName', sprintf('$r=%.2f$', data{i}.duality_r), ...
+            'Color', colors_cross{idx});
+    end
+    
+    hold(ax10, 'off');
+    grid(ax10, 'on');
+    set(ax10, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$c$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    title('Cross-section at $z=0$', 'Interpreter', 'latex', 'FontSize', fontsize_title, 'FontWeight', 'bold');
+    legend('Location', 'northeastoutside', 'Interpreter', 'latex', 'FontSize', fontsize_label-1, ...
+        'FontName', fontname_main, 'NumColumns', 1);
+    set(ax10, 'FontName', fontname_main, 'FontSize', fontsize_label);
+    
+    % 子图11：Cross-section at x=0
+    ax11 = subplot(3, 4, 11);
+    hold(ax11, 'on');
+    mid_j = ceil(J / 2);
+    plot(z, c_exact(:, mid_j), '-', 'LineWidth', 2.5, 'DisplayName', '$c_{\mathrm{exact}}$', ...
+        'Color', [0, 0, 0]);
+    
+    for idx = 1:4
+        i = r_indices(idx);
+        c_sol = data{i}.c_solution;
+        plot(z, c_sol(:, mid_j), line_styles_cross{idx}, 'LineWidth', 2, ...
+            'DisplayName', sprintf('$r=%.2f$', data{i}.duality_r), ...
+            'Color', colors_cross{idx});
+    end
+    
+    hold(ax11, 'off');
+    grid(ax11, 'on');
+    set(ax11, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    xlabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$c$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    title('Cross-section at $x=0$', 'Interpreter', 'latex', 'FontSize', fontsize_title, 'FontWeight', 'bold');
+    legend('Location', 'northeastoutside', 'Interpreter', 'latex', 'FontSize', fontsize_label-1, ...
+        'FontName', fontname_main, 'NumColumns', 1);
+    set(ax11, 'FontName', fontname_main, 'FontSize', fontsize_label);
+    
+    % 子图12：空白
+    ax12 = subplot(3, 4, 12);
+    axis off;
+    
+    % 总标题
+    sgtitle(sprintf('Comprehensive Comparison: Solutions, Errors & Cross-sections (4 r-values)'), ...
+        'FontSize', 14, 'FontWeight', 'bold', 'FontName', fontname_main);
+    
+    % 保存综合图
+    set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [40, 30], ...
+        'PaperPosition', [0, 0, 40, 30]);
+    drawnow;
+    print(fig, fullfile(root_dir, 'comprehensive_full_comparison.pdf'), '-dpdf', '-r300', '-fillpage');
+    print(fig, fullfile(root_dir, 'comprehensive_full_comparison.eps'), '-depsc2', '-r300');
+    print(fig, fullfile(root_dir, 'comprehensive_full_comparison.png'), '-dpng', '-r300');
+    close(fig);
+    
+    fprintf('✓ Saved comprehensive 12-subplot comparison to: %s\n', root_dir);
+    
+    % ========== 单独存储每个子图 ==========
+    save_individual_subplots(data, c_exact, x, z, I, J, c_min_all, c_max_all, err_max_all, root_dir, fontname_main, fontsize_label, fontsize_title);
+end
+
+function save_individual_subplots(data, c_exact, x, z, I, J, c_min_all, c_max_all, err_max_all, root_dir, fontname_main, fontsize_label, fontsize_title)
+    % 创建子目录用于存储单个子图
+    subdir = fullfile(root_dir, 'individual_subplots');
+    if ~exist(subdir, 'dir')
+        mkdir(subdir);
+    end
+    
+    nR = min(4, numel(data));
+    
+    % ========== 保存精确解 ==========
+    fig = figure('Position', [50, 50, 600, 550], 'Units', 'pixels', 'Visible', 'off');
+    imagesc(x, z, c_exact, [c_min_all, c_max_all]);
+    set(gca, 'YDir', 'normal');
+    colorbar('FontSize', fontsize_label-1);
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    title('$c_{\mathrm{exact}}$', 'Interpreter', 'latex', 'FontSize', fontsize_title+1, 'FontWeight', 'bold');
+    set(gca, 'FontName', fontname_main, 'FontSize', fontsize_label);
+    
+    set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [15, 13.5], 'PaperPosition', [0, 0, 15, 13.5]);
+    drawnow;
+    print(fig, fullfile(subdir, '01_exact_solution.pdf'), '-dpdf', '-r300', '-fillpage');
+    print(fig, fullfile(subdir, '01_exact_solution.eps'), '-depsc2', '-r300');
+    print(fig, fullfile(subdir, '01_exact_solution.png'), '-dpng', '-r300');
+    close(fig);
+    fprintf('  → 01_exact_solution\n');
+    
+    % ========== 保存4个反演解 ==========
+    for idx = 1:nR
+        i = idx;
+        fig = figure('Position', [50, 50, 600, 550], 'Units', 'pixels', 'Visible', 'off');
+        c_sol = data{i}.c_solution;
+        imagesc(x, z, c_sol, [c_min_all, c_max_all]);
+        set(gca, 'YDir', 'normal');
+        colorbar('FontSize', fontsize_label-1);
+        xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        title(sprintf('$c_{r=%.2f}$', data{i}.duality_r), 'Interpreter', 'latex', ...
+            'FontSize', fontsize_title+1, 'FontWeight', 'bold');
+        set(gca, 'FontName', fontname_main, 'FontSize', fontsize_label);
+        
+        set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [15, 13.5], 'PaperPosition', [0, 0, 15, 13.5]);
+        filename = sprintf('0%d_solution_r_%.2f.pdf', idx+1, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename), '-dpdf', '-r300', '-fillpage');
+        filename_eps = sprintf('0%d_solution_r_%.2f.eps', idx+1, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename_eps), '-depsc2', '-r300');
+        filename_png = sprintf('0%d_solution_r_%.2f.png', idx+1, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename_png), '-dpng', '-r300');
+        close(fig);
+        fprintf('  → 0%d_solution_r_%.2f\n', idx+1, data{i}.duality_r);
+    end
+    
+    % ========== 保存4个误差图 ==========
+    for idx = 1:nR
+        i = idx;
+        fig = figure('Position', [50, 50, 600, 550], 'Units', 'pixels', 'Visible', 'off');
+        c_sol = data{i}.c_solution;
+        err = abs(c_sol - c_exact);
+        imagesc(x, z, err, [0, err_max_all]);
+        set(gca, 'YDir', 'normal');
+        colorbar('FontSize', fontsize_label-1);
+        xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        ylabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+        title_str = ['Error $|c_{r=', sprintf('%.2f', data{i}.duality_r), '} - c_{\mathrm{exact}}|$'];
+        title(title_str, 'Interpreter', 'latex', ...
+            'FontSize', fontsize_title+1, 'FontWeight', 'bold');
+        set(gca, 'FontName', fontname_main, 'FontSize', fontsize_label);
+        
+        set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [15, 13.5], 'PaperPosition', [0, 0, 15, 13.5]);
+        filename = sprintf('0%d_error_r_%.2f.pdf', idx+5, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename), '-dpdf', '-r300', '-fillpage');
+        filename_eps = sprintf('0%d_error_r_%.2f.eps', idx+5, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename_eps), '-depsc2', '-r300');
+        filename_png = sprintf('0%d_error_r_%.2f.png', idx+5, data{i}.duality_r);
+        print(fig, fullfile(subdir, filename_png), '-dpng', '-r300');
+        close(fig);
+        fprintf('  → 0%d_error_r_%.2f\n', idx+5, data{i}.duality_r);
+    end
+    
+    % ========== 保存cross-section图 ==========
+    % Cross-section at z=0
+    fig = figure('Position', [50, 50, 700, 500], 'Units', 'pixels', 'Visible', 'off');
+    hold on;
+    mid_i = ceil(I / 2);
+    plot(x, c_exact(mid_i, :), '-', 'LineWidth', 2.5, 'DisplayName', '$c_{\mathrm{exact}}$', 'Color', [0, 0, 0]);
+    
+    colors_cross = {[0.1, 0.3, 0.8], [0.8, 0.2, 0.2], [0.2, 0.7, 0.3], [0.8, 0.6, 0.1]};
+    line_styles_cross = {'--', '-.', ':', '-.'};
+    for idx = 1:nR
+        i = idx;
+        c_sol = data{i}.c_solution;
+        plot(x, c_sol(mid_i, :), line_styles_cross{idx}, 'LineWidth', 2, ...
+            'DisplayName', sprintf('$r=%.2f$', data{i}.duality_r), 'Color', colors_cross{idx});
+    end
+    
+    hold off;
+    grid on;
+    set(gca, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    xlabel('$x$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$c$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    title('Cross-section at $z=0$ (All $r$ values)', 'Interpreter', 'latex', ...
+        'FontSize', fontsize_title+1, 'FontWeight', 'bold');
+    legend('Location', 'northeastoutside', 'Interpreter', 'latex', 'FontSize', fontsize_label, 'FontName', fontname_main, 'NumColumns', 1);
+    set(gca, 'FontName', fontname_main, 'FontSize', fontsize_label);
+    
+    set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [17.5, 12.5], 'PaperPosition', [0, 0, 17.5, 12.5]);
+    drawnow;
+    print(fig, fullfile(subdir, '09_crosssection_z0.pdf'), '-dpdf', '-r300', '-fillpage');
+    print(fig, fullfile(subdir, '09_crosssection_z0.eps'), '-depsc2', '-r300');
+    print(fig, fullfile(subdir, '09_crosssection_z0.png'), '-dpng', '-r300');
+    close(fig);
+    fprintf('  → 09_crosssection_z0\n');
+    
+    % Cross-section at x=0
+    fig = figure('Position', [50, 50, 700, 500], 'Units', 'pixels', 'Visible', 'off');
+    hold on;
+    mid_j = ceil(J / 2);
+    plot(z, c_exact(:, mid_j), '-', 'LineWidth', 2.5, 'DisplayName', '$c_{\mathrm{exact}}$', 'Color', [0, 0, 0]);
+    
+    for idx = 1:nR
+        i = idx;
+        c_sol = data{i}.c_solution;
+        plot(z, c_sol(:, mid_j), line_styles_cross{idx}, 'LineWidth', 2, ...
+            'DisplayName', sprintf('$r=%.2f$', data{i}.duality_r), 'Color', colors_cross{idx});
+    end
+    
+    hold off;
+    grid on;
+    set(gca, 'GridLineStyle', '--', 'GridAlpha', 0.3);
+    xlabel('$z$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    ylabel('$c$', 'Interpreter', 'latex', 'FontSize', fontsize_label);
+    title('Cross-section at $x=0$ (All $r$ values)', 'Interpreter', 'latex', ...
+        'FontSize', fontsize_title+1, 'FontWeight', 'bold');
+    legend('Location', 'northeastoutside', 'Interpreter', 'latex', 'FontSize', fontsize_label, 'FontName', fontname_main, 'NumColumns', 1);
+    set(gca, 'FontName', fontname_main, 'FontSize', fontsize_label);
+    
+    set(fig, 'Renderer', 'painters', 'PaperUnits', 'centimeters', 'PaperSize', [17.5, 12.5], 'PaperPosition', [0, 0, 17.5, 12.5]);
+    drawnow;
+    print(fig, fullfile(subdir, '10_crosssection_x0.pdf'), '-dpdf', '-r300', '-fillpage');
+    print(fig, fullfile(subdir, '10_crosssection_x0.eps'), '-depsc2', '-r300');
+    print(fig, fullfile(subdir, '10_crosssection_x0.png'), '-dpng', '-r300');
+    close(fig);
+    fprintf('  → 10_crosssection_x0\n');
+    
+    fprintf('\n✓ All individual subplots saved to: %s\n', subdir);
 end
